@@ -1,0 +1,59 @@
+// ============================================================================
+// Risk/Reward Overlay
+// Draws entry, stop loss, and take profit zones on the chart.
+// Calculates R:R ratio and position size. Plan the trade before you take it.
+// PrimeFold Trading | primefold.tools
+// ============================================================================
+
+//@version=5
+indicator("Risk/Reward Overlay", overlay=true)
+
+// --- Inputs ---
+// Set these to your planned trade levels before entering.
+entryPrice  = input.float(100.0, "Entry Price",       minval=0)
+stopPrice   = input.float(95.0,  "Stop Loss Price",   minval=0)
+targetPrice = input.float(110.0, "Take Profit Price", minval=0)
+accountSize = input.float(10000, "Account Size ($)",   minval=0)
+riskPct     = input.float(1.0,   "Risk Per Trade (%)", minval=0.1, step=0.1)
+
+// --- Calculations ---
+// Risk = distance from entry to stop. Reward = distance from entry to target.
+riskPerShare   = math.abs(entryPrice - stopPrice)
+rewardPerShare = math.abs(targetPrice - entryPrice)
+
+// R:R ratio — how many dollars of reward per dollar risked.
+// A ratio of 2.0 means you gain $2 for every $1 risked.
+rrRatio = riskPerShare > 0 ? rewardPerShare / riskPerShare : 0.0
+
+// Position sizing: risk a fixed % of account per trade.
+// This determines how many shares/contracts to buy.
+riskDollars = accountSize * (riskPct / 100)
+positionSize = riskPerShare > 0 ? math.floor(riskDollars / riskPerShare) : 0
+
+// --- Determine Direction ---
+isLong = targetPrice > entryPrice
+
+// --- Draw Levels ---
+// Horizontal lines at entry, stop, and target. Visible across the chart.
+entryLine  = plot(entryPrice,  "Entry",       color.white,  linewidth=2)
+stopLine   = plot(stopPrice,   "Stop Loss",   color.red,    linewidth=1)
+targetLine = plot(targetPrice, "Take Profit", color.green,  linewidth=1)
+
+// --- Fill Zones ---
+// Green zone = reward area (entry to target). Red zone = risk area (entry to stop).
+fill(entryLine, targetLine, color=color.new(color.green, 85), title="Reward Zone")
+fill(entryLine, stopLine,   color=color.new(color.red, 85),   title="Risk Zone")
+
+// --- Info Table ---
+// Display R:R ratio and position size in a table on the chart.
+var table infoTable = table.new(position.top_right, 2, 4, bgcolor=color.new(color.gray, 85))
+
+if barstate.islast
+    table.cell(infoTable, 0, 0, "R:R Ratio",     text_color=color.white, text_size=size.small)
+    table.cell(infoTable, 1, 0, str.tostring(rrRatio, "#.##"), text_color=color.white, text_size=size.small)
+    table.cell(infoTable, 0, 1, "Risk / Share",   text_color=color.white, text_size=size.small)
+    table.cell(infoTable, 1, 1, "$" + str.tostring(riskPerShare, "#.##"), text_color=color.red, text_size=size.small)
+    table.cell(infoTable, 0, 2, "Position Size",  text_color=color.white, text_size=size.small)
+    table.cell(infoTable, 1, 2, str.tostring(positionSize) + " units", text_color=color.white, text_size=size.small)
+    table.cell(infoTable, 0, 3, "Risk Amount",    text_color=color.white, text_size=size.small)
+    table.cell(infoTable, 1, 3, "$" + str.tostring(riskDollars, "#.##"), text_color=color.orange, text_size=size.small)

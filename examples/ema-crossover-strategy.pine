@@ -1,0 +1,54 @@
+// ============================================================================
+// EMA Crossover Strategy with Risk Management
+// Clean crossover system with stop loss, take profit, and position sizing.
+// PrimeFold Trading | primefold.tools
+// ============================================================================
+
+//@version=5
+strategy("EMA Crossover Strategy", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=2)
+
+// --- Inputs ---
+// Fast and slow EMA lengths control signal sensitivity.
+// Shorter fast EMA = more signals (and more noise).
+fastLen   = input.int(9,   "Fast EMA Length", minval=1)
+slowLen   = input.int(21,  "Slow EMA Length", minval=1)
+atrLen    = input.int(14,  "ATR Length",      minval=1)
+slMult    = input.float(1.5, "Stop Loss (ATR multiplier)",   minval=0.1, step=0.1)
+tpMult    = input.float(2.5, "Take Profit (ATR multiplier)", minval=0.1, step=0.1)
+
+// --- Calculations ---
+// EMA (Exponential Moving Average) reacts faster than SMA to recent price.
+fastEma = ta.ema(close, fastLen)
+slowEma = ta.ema(close, slowLen)
+atr     = ta.atr(atrLen)
+
+// --- Crossover Detection ---
+// ta.crossover returns true on the bar where fast crosses above slow.
+// ta.crossunder returns true on the bar where fast crosses below slow.
+longSignal  = ta.crossover(fastEma, slowEma)
+shortSignal = ta.crossunder(fastEma, slowEma)
+
+// --- Stop Loss & Take Profit ---
+// ATR-based stops adapt to current volatility. High volatility = wider stops.
+longStop   = close - atr * slMult
+longTarget = close + atr * tpMult
+shortStop   = close + atr * slMult
+shortTarget = close - atr * tpMult
+
+// --- Strategy Execution ---
+// Enter long on bullish crossover, exit on bearish crossover or stops.
+if longSignal
+    strategy.entry("Long", strategy.long)
+    strategy.exit("Long Exit", "Long", stop=longStop, limit=longTarget)
+
+if shortSignal
+    strategy.entry("Short", strategy.short)
+    strategy.exit("Short Exit", "Short", stop=shortStop, limit=shortTarget)
+
+// --- Plotting ---
+plot(fastEma, "Fast EMA", color.new(color.teal, 0),   linewidth=2)
+plot(slowEma, "Slow EMA", color.new(color.orange, 0), linewidth=2)
+
+// Visual markers for crossover signals
+plotshape(longSignal,  "Long Signal",  shape.triangleup,   location.belowbar, color.green, size=size.small)
+plotshape(shortSignal, "Short Signal", shape.triangledown, location.abovebar, color.red,   size=size.small)

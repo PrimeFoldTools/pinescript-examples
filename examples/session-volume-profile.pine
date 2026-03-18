@@ -1,0 +1,59 @@
+// ============================================================================
+// Session Volume Profile
+// Tracks cumulative volume for Asian, London, and New York sessions.
+// Resets each day. Useful for understanding when liquidity is active.
+// PrimeFold Trading | primefold.tools
+// ============================================================================
+
+//@version=5
+indicator("Session Volume Profile", overlay=false)
+
+// --- Session Time Inputs ---
+// Sessions defined in exchange timezone. Adjust these to match your market.
+// Format: "HHMM-HHMM" in the exchange's local timezone.
+asianTimes  = input.session("1800-0300", "Asian Session")
+londonTimes = input.session("0300-1130", "London Session")
+nyTimes     = input.session("0800-1700", "New York Session")
+
+// --- Session Detection ---
+// time() returns the bar time if it falls within the session, otherwise na.
+// not na() tells us the session is currently active.
+inAsian  = not na(time(timeframe.period, asianTimes))
+inLondon = not na(time(timeframe.period, londonTimes))
+inNY     = not na(time(timeframe.period, nyTimes))
+
+// --- Cumulative Session Volume ---
+// Track cumulative volume per session. Reset when a new session bar starts
+// after the session was previously inactive.
+var float asianVol  = 0.0
+var float londonVol = 0.0
+var float nyVol     = 0.0
+
+// Reset volume at session open (first bar of the session)
+if inAsian and not inAsian[1]
+    asianVol := 0.0
+if inLondon and not inLondon[1]
+    londonVol := 0.0
+if inNY and not inNY[1]
+    nyVol := 0.0
+
+// Accumulate volume during each session
+if inAsian
+    asianVol += volume
+if inLondon
+    londonVol += volume
+if inNY
+    nyVol += volume
+
+// --- Plotting ---
+// Plot each session's cumulative volume as a separate series.
+// Only visible during the active session (na otherwise).
+plot(inAsian  ? asianVol  : na, "Asian Volume",  color.new(color.purple, 20), linewidth=2)
+plot(inLondon ? londonVol : na, "London Volume", color.new(color.blue, 20),   linewidth=2)
+plot(inNY     ? nyVol     : na, "NY Volume",     color.new(color.orange, 20), linewidth=2)
+
+// --- Background Highlights ---
+// Subtle background color shows which session is active at a glance.
+bgcolor(inAsian  ? color.new(color.purple, 93) : na, title="Asian BG")
+bgcolor(inLondon ? color.new(color.blue, 93)   : na, title="London BG")
+bgcolor(inNY     ? color.new(color.orange, 93) : na, title="NY BG")

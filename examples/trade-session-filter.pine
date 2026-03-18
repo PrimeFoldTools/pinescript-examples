@@ -1,0 +1,65 @@
+// ============================================================================
+// Trade Session Filter
+// Filters strategy entries to specific trading sessions only.
+// Demonstrates how to restrict trading to high-liquidity windows
+// and avoid overnight or low-volume periods.
+// PrimeFold Trading | primefold.tools
+// ============================================================================
+
+//@version=5
+strategy("Trade Session Filter", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=2)
+
+// --- Session Inputs ---
+// Define which session(s) to allow trades in. Times are in exchange timezone.
+useLondon = input.bool(true,  "Trade London Session")
+useNY     = input.bool(true,  "Trade New York Session")
+londonSession = input.session("0300-1130", "London Hours")
+nySession     = input.session("0800-1700", "New York Hours")
+
+// --- Strategy Inputs ---
+fastLen = input.int(9,  "Fast EMA", minval=1)
+slowLen = input.int(21, "Slow EMA", minval=1)
+atrLen  = input.int(14, "ATR Length", minval=1)
+slMult  = input.float(1.5, "SL Multiplier (ATR)", minval=0.1, step=0.1)
+
+// --- Session Detection ---
+// time() returns the bar time if within the session window, na otherwise.
+inLondon = useLondon and not na(time(timeframe.period, londonSession))
+inNY     = useNY     and not na(time(timeframe.period, nySession))
+inSession = inLondon or inNY
+
+// --- Indicators ---
+fastEma = ta.ema(close, fastLen)
+slowEma = ta.ema(close, slowLen)
+atr     = ta.atr(atrLen)
+
+// --- Signals ---
+longSignal  = ta.crossover(fastEma, slowEma)
+shortSignal = ta.crossunder(fastEma, slowEma)
+
+// --- Entries (Session-Filtered) ---
+// The key idea: signals are only acted on during allowed sessions.
+// This prevents entries during thin markets where slippage is high.
+if longSignal and inSession
+    strategy.entry("Long", strategy.long)
+    strategy.exit("Long SL", "Long", stop=close - atr * slMult)
+
+if shortSignal and inSession
+    strategy.entry("Short", strategy.short)
+    strategy.exit("Short SL", "Short", stop=close + atr * slMult)
+
+// --- Close positions outside session (optional safety rule) ---
+// Uncomment the next line to flatten all positions when the session ends:
+// if not inSession
+//     strategy.close_all("Session End")
+
+// --- Plotting ---
+plot(fastEma, "Fast EMA", color.teal,   linewidth=1)
+plot(slowEma, "Slow EMA", color.orange, linewidth=1)
+
+// Background highlight shows when trading is allowed
+bgcolor(inSession ? color.new(color.green, 93) : color.new(color.gray, 96), title="Session Window")
+
+// Markers only appear during active sessions
+plotshape(longSignal  and inSession, "Long",  shape.triangleup,   location.belowbar, color.green, size=size.tiny)
+plotshape(shortSignal and inSession, "Short", shape.triangledown, location.abovebar, color.red,   size=size.tiny)

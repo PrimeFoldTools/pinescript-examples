@@ -1,0 +1,51 @@
+// ============================================================================
+// Multi-Timeframe EMA
+// Plots a higher timeframe EMA on your current chart using request.security().
+// Useful for seeing the "big picture" trend while trading a lower timeframe.
+// PrimeFold Trading | primefold.tools
+// ============================================================================
+
+//@version=5
+indicator("Multi-Timeframe EMA", overlay=true)
+
+// --- Inputs ---
+emaLen = input.int(21, "EMA Length", minval=1)
+
+// Higher timeframe selection. The HTF EMA shows the dominant trend
+// while you make entries on the current (lower) timeframe.
+htf = input.timeframe("D", "Higher Timeframe")
+
+// Current timeframe EMA for comparison
+showCurrentTF = input.bool(true, "Show Current TF EMA")
+
+// --- Current Timeframe EMA ---
+currentEma = ta.ema(close, emaLen)
+
+// --- Higher Timeframe EMA ---
+// request.security() fetches data from another timeframe.
+// barmerge.gaps_off fills gaps so the line is continuous.
+// barmerge.lookahead_off prevents future data from leaking into past bars.
+htfEma = request.security(syminfo.tickerid, htf, ta.ema(close, emaLen), barmerge.gaps_off, barmerge.lookahead_off)
+
+// --- Trend Detection ---
+// Price above both EMAs = strong uptrend. Below both = strong downtrend.
+// Between them = transitional / choppy.
+aboveBoth = close > currentEma and close > htfEma
+belowBoth = close < currentEma and close < htfEma
+
+// --- Plotting ---
+plot(showCurrentTF ? currentEma : na, "Current TF EMA", color.new(color.teal, 0), linewidth=1)
+plot(htfEma, "HTF EMA", color.new(color.orange, 0), linewidth=3)
+
+// --- Background ---
+// Subtle background color to show trend alignment at a glance.
+// Green = both timeframes agree on uptrend. Red = both agree on downtrend.
+bgcolor(aboveBoth ? color.new(color.green, 92) : belowBoth ? color.new(color.red, 92) : na, title="Trend Alignment")
+
+// --- Info Label ---
+// Show which higher timeframe is being used as a reminder.
+var label infoLabel = na
+if barstate.islast
+    label.delete(infoLabel)
+    labelText = "HTF: " + htf + " | EMA: " + str.tostring(emaLen)
+    infoLabel := label.new(bar_index, htfEma, labelText, style=label.style_label_left, color=color.new(color.gray, 60), textcolor=color.white, size=size.small)

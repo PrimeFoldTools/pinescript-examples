@@ -1,0 +1,58 @@
+// ============================================================================
+// ATR Trailing Stop Indicator
+// Dynamic trailing stop that adapts to market volatility using ATR.
+// Useful as a trend-following exit or as a standalone trend filter.
+// PrimeFold Trading | primefold.tools
+// ============================================================================
+
+//@version=5
+indicator("ATR Trailing Stop", overlay=true)
+
+// --- Inputs ---
+atrLen  = input.int(14,    "ATR Length", minval=1)
+atrMult = input.float(2.0, "ATR Multiplier", minval=0.1, step=0.1)
+src     = input.source(close, "Source")
+
+// --- ATR Calculation ---
+// ATR measures average volatility over N bars.
+// Multiplying ATR sets the stop distance — higher mult = wider stop = fewer whipsaws.
+atr = ta.atr(atrLen)
+
+// --- Trailing Stop Logic ---
+// The trailing stop ratchets in the direction of the trend.
+// In an uptrend, the stop only moves up (never down).
+// In a downtrend, the stop only moves down (never up).
+var float trailStop = na
+var int   direction = 1
+
+// Calculate raw stop levels for both directions
+longStop  = src - atr * atrMult
+shortStop = src + atr * atrMult
+
+// Ratchet logic: only allow the stop to move in the trend's favor.
+// nz() returns 0 if the previous value is na (handles first bar).
+longStop  := src[1] > nz(trailStop[1]) ? math.max(longStop, nz(trailStop[1]))  : longStop
+shortStop := src[1] < nz(trailStop[1]) ? math.min(shortStop, nz(trailStop[1])) : shortStop
+
+// Determine trend direction based on price vs. trailing stop
+if src > nz(trailStop[1])
+    direction := 1
+if src < nz(trailStop[1])
+    direction := -1
+
+// Select the correct stop based on current direction
+trailStop := direction == 1 ? longStop : shortStop
+
+// --- Detect Direction Changes ---
+// A direction change is a potential entry or exit signal.
+buySignal  = direction == 1  and direction[1] == -1
+sellSignal = direction == -1 and direction[1] == 1
+
+// --- Plotting ---
+// Color the stop line by trend direction for quick visual read.
+stopColor = direction == 1 ? color.new(color.green, 0) : color.new(color.red, 0)
+plot(trailStop, "Trailing Stop", stopColor, linewidth=2, style=plot.style_linebr)
+
+// Mark direction changes on chart
+plotshape(buySignal,  "Buy Signal",  shape.circle, location.belowbar, color.green, size=size.tiny)
+plotshape(sellSignal, "Sell Signal", shape.circle, location.abovebar, color.red,   size=size.tiny)
