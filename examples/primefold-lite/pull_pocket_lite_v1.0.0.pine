@@ -1,0 +1,200 @@
+//@version=5
+// ============================================================
+// PRIMEFOLD CONTINUITY REGISTRY
+// Module: Pull Pocket Lite — INDICATOR (Free Tier)
+// Version: v1.0.0 | Module Code: PL-L | Design System: v3.1
+// (c) 2026 PrimeFold.Tools - PrimeFold Trading
+// ============================================================
+// Free pullback-zone overlay. Detects liquidity pockets
+// (EQH/EQL + prior period levels) where price is likely to
+// pull back to, and tracks pocket status.
+// No alerts, no entry signals, no magnet scoring.
+// Full pullback signals, magnet scoring, and alerts available in PrimeFold Command — primefold.tools
+// ============================================================
+indicator("PF - Pull Pocket Lite v1.0.0", shorttitle="PF-PL-Lite", overlay=true)
+
+// — PRIMEFOLD DESIGN SYSTEM v3.1 — IMMUTABLE CONSTANTS —
+var color BULLISH_GREEN  = #10B981, var color NEUTRAL_AMBER = #F59E0B
+var color BEARISH_RED    = #EF4444, var color COGNITIVE_BLUE = #7AA2F7
+var color TEXT_DIM       = #999999, var color TEXT_PRIMARY   = #FFFFFF
+var color BG_PRIMARY     = #121212, var color DIVIDER        = #2A2A2A
+var color FRAME_WHITE    = #FFFFFF
+
+// — INPUTS —
+string GRP_CORE = "Core Settings"
+int   i_atr_len    = input.int(14,    "ATR Length",                minval=5,    maxval=50,   group=GRP_CORE)
+int   i_swing_L    = input.int(5,     "Swing Lookback Left",      minval=2,    maxval=20,   group=GRP_CORE)
+int   i_swing_R    = input.int(5,     "Swing Lookback Right",     minval=2,    maxval=20,   group=GRP_CORE)
+float i_liq_tol    = input.float(0.15,"EQH/EQL Tolerance (xATR)", minval=0.05, maxval=0.50, step=0.05, group=GRP_CORE)
+int   i_liq_hist   = input.int(20,    "Swing History",            minval=10,   maxval=50,   group=GRP_CORE)
+int   i_zone_life  = input.int(120,   "Zone Lifespan (bars)",     minval=20,   maxval=300,  group=GRP_CORE)
+string GRP_P = "Prior Period Levels"
+bool i_daily  = input.bool(true, "Daily H/L",  group=GRP_P)
+bool i_weekly = input.bool(true, "Weekly H/L", group=GRP_P)
+
+// — CORE CALC —
+float atr = ta.atr(i_atr_len)
+float liq_tol = atr * i_liq_tol
+
+// — POCKET REGISTRY —
+int MAX_P = 12
+type Pocket
+    bool active = false, int dir = 0, float price = na
+    float zt = na, float zb = na, int birth = 0, int death = 0, bool hit = false
+
+var array<Pocket> pk = array.new<Pocket>()
+if barstate.isfirst
+    for _i = 0 to MAX_P - 1
+        array.push(pk, Pocket.new())
+
+f_slot() =>
+    int s = -1
+    for i = 0 to MAX_P - 1
+        if not array.get(pk, i).active
+            s := i
+            break
+    s
+
+f_clear(int s) =>
+    if s >= 0 and s < MAX_P
+        Pocket p = array.get(pk, s)
+        p.active := false, p.price := na, p.zt := na, p.zb := na, p.hit := false
+
+f_similar(float pr, int d, float tol) =>
+    int f = -1
+    for i = 0 to MAX_P - 1
+        Pocket p = array.get(pk, i)
+        if p.active and p.dir == d and not p.hit and not na(p.price) and math.abs(p.price - pr) <= tol
+            f := i
+            break
+    f
+
+f_add(int d, float pr, float t, float b, int bi, int life) =>
+    int s = f_slot()
+    if s >= 0
+        Pocket p = array.get(pk, s)
+        p.active := true, p.dir := d, p.price := pr
+        p.zt := t, p.zb := b, p.birth := bi, p.death := bi + life, p.hit := false
+    s
+
+// — SWING ENGINE —
+float ph = ta.pivothigh(high, i_swing_L, i_swing_R)
+float pl = ta.pivotlow(low, i_swing_L, i_swing_R)
+var array<float> shp = array.new_float(), var array<float> slp = array.new_float()
+
+if barstate.isconfirmed
+    if not na(ph)
+        array.push(shp, ph)
+        if array.size(shp) > i_liq_hist
+            array.shift(shp)
+    if not na(pl)
+        array.push(slp, pl)
+        if array.size(slp) > i_liq_hist
+            array.shift(slp)
+
+// — PRODUCER 1: LIQUIDITY POOLS (EQH/EQL) —
+float tk = math.max(atr * 0.3, syminfo.mintick * 6)
+if barstate.isconfirmed
+    if not na(ph) and array.size(shp) > 1
+        for i = 0 to array.size(shp) - 2
+            float h = array.get(shp, i)
+            if math.abs(ph - h) <= liq_tol
+                float a = (ph + h) / 2
+                if f_similar(a, 1, liq_tol) < 0
+                    f_add(1, a, a + tk * 0.5, a - tk * 0.5, bar_index, i_zone_life)
+                break
+    if not na(pl) and array.size(slp) > 1
+        for i = 0 to array.size(slp) - 2
+            float l = array.get(slp, i)
+            if math.abs(pl - l) <= liq_tol
+                float a = (pl + l) / 2
+                if f_similar(a, -1, liq_tol) < 0
+                    f_add(-1, a, a + tk * 0.5, a - tk * 0.5, bar_index, i_zone_life)
+                break
+
+// — PRODUCER 2: PRIOR PERIOD LEVELS —
+[d_h, d_l] = request.security(syminfo.tickerid, "D", [high[1], low[1]], barmerge.gaps_off, barmerge.lookahead_off)
+[w_h, w_l] = request.security(syminfo.tickerid, "W", [high[1], low[1]], barmerge.gaps_off, barmerge.lookahead_off)
+var float ldh = na, var float ldl = na, var float lwh = na, var float lwl = na
+if barstate.isconfirmed
+    float tp = math.max(atr * 0.15, syminfo.mintick * 6)
+    if i_daily and not na(d_h) and d_h != ldh
+        f_add(1, d_h, d_h + tp, d_h - tp, bar_index, 500), ldh := d_h
+    if i_daily and not na(d_l) and d_l != ldl
+        f_add(-1, d_l, d_l + tp, d_l - tp, bar_index, 500), ldl := d_l
+    if i_weekly and not na(w_h) and w_h != lwh
+        f_add(1, w_h, w_h + tp, w_h - tp, bar_index, 500), lwh := w_h
+    if i_weekly and not na(w_l) and w_l != lwl
+        f_add(-1, w_l, w_l + tp, w_l - tp, bar_index, 500), lwl := w_l
+
+// — DECAY + HIT DETECTION —
+if barstate.isconfirmed
+    for i = 0 to MAX_P - 1
+        Pocket p = array.get(pk, i)
+        if p.active and not p.hit
+            if bar_index >= p.death
+                f_clear(i)
+                continue
+            if (p.dir == 1 and high >= p.zb) or (p.dir == -1 and low <= p.zt)
+                p.hit := true
+
+// — RESOLVER: NEAREST POCKET ABOVE / BELOW —
+var float pa = na, var float pb = na
+var float pa_t = na, var float pa_b = na, var float pb_t = na, var float pb_b = na
+var bool pa_hit = false, var bool pb_hit = false, var int act_ct = 0
+
+if barstate.isconfirmed
+    pa := na, pb := na, pa_hit := false, pb_hit := false, act_ct := 0
+    float da = 1e18, float db = 1e18
+    for i = 0 to MAX_P - 1
+        Pocket p = array.get(pk, i)
+        if p.active and not na(p.price)
+            act_ct += 1
+            float d = math.abs(p.price - close)
+            if p.price > close and d < da
+                da := d, pa := p.price, pa_t := p.zt, pa_b := p.zb, pa_hit := p.hit
+            else if p.price <= close and d < db
+                db := d, pb := p.price, pb_t := p.zt, pb_b := p.zb, pb_hit := p.hit
+
+// — STATUS —
+bool has_pk = not na(pa) or not na(pb)
+float d_above = not na(pa) ? pa - close : 1e18
+float d_below = not na(pb) ? close - pb : 1e18
+bool tgt_above = d_above <= d_below
+float pocket_tgt = tgt_above ? pa : pb
+float tgt_dist = tgt_above ? d_above : d_below
+float dist_pct = close != 0 ? tgt_dist / close * 100 : 0
+bool tgt_hit = tgt_above ? pa_hit : pb_hit
+string status = not has_pk ? "NO POCKET" : tgt_hit ? "POCKET HIT" : "ACTIVE POCKET"
+color  st_clr = status == "ACTIVE POCKET" ? COGNITIVE_BLUE : status == "POCKET HIT" ? BULLISH_GREEN : TEXT_DIM
+
+// — VISUALS: POCKET ZONE LINES —
+color ca = pa_hit ? color.new(BULLISH_GREEN, 60) : color.new(BEARISH_RED, 40)
+color cb = pb_hit ? color.new(BULLISH_GREEN, 60) : color.new(BULLISH_GREEN, 40)
+plot(pa,   "Pocket Above",     color=ca, style=plot.style_linebr, linewidth=2)
+plot(pa_t, "Pocket Above Top", color=color.new(BEARISH_RED, 80), style=plot.style_linebr, linewidth=1)
+plot(pa_b, "Pocket Above Bot", color=color.new(BEARISH_RED, 80), style=plot.style_linebr, linewidth=1)
+plot(pb,   "Pocket Below",     color=cb, style=plot.style_linebr, linewidth=2)
+plot(pb_t, "Pocket Below Top", color=color.new(BULLISH_GREEN, 80), style=plot.style_linebr, linewidth=1)
+plot(pb_b, "Pocket Below Bot", color=color.new(BULLISH_GREEN, 80), style=plot.style_linebr, linewidth=1)
+
+// — DASHBOARD (5 rows) —
+var table dash = table.new(position.bottom_right, 2, 5, bgcolor=BG_PRIMARY, frame_color=FRAME_WHITE, frame_width=2, border_width=1, border_color=DIVIDER)
+
+if barstate.islast
+    table.cell(dash, 0, 0, "Pull Pocket Lite", bgcolor=COGNITIVE_BLUE, text_color=TEXT_PRIMARY, text_size=size.small)
+    table.cell(dash, 1, 0, "v1.0.0",           bgcolor=COGNITIVE_BLUE, text_color=TEXT_PRIMARY, text_size=size.tiny)
+    table.cell(dash, 0, 1, "Status",  text_color=TEXT_DIM, text_size=size.small, bgcolor=BG_PRIMARY)
+    table.cell(dash, 1, 1, status,    text_color=st_clr,   text_size=size.small, bgcolor=BG_PRIMARY)
+    string tgt_txt = na(pocket_tgt) ? "---" : str.tostring(pocket_tgt, format.mintick) + (tgt_above ? " ^" : " v")
+    table.cell(dash, 0, 2, "Target",   text_color=TEXT_DIM,    text_size=size.small, bgcolor=BG_PRIMARY)
+    table.cell(dash, 1, 2, tgt_txt,    text_color=TEXT_PRIMARY, text_size=size.small, bgcolor=BG_PRIMARY)
+    string d_txt = na(pocket_tgt) ? "---" : str.tostring(math.round(dist_pct, 2)) + "%"
+    color  d_clr = na(pocket_tgt) ? TEXT_DIM : dist_pct < 0.5 ? NEUTRAL_AMBER : TEXT_PRIMARY
+    table.cell(dash, 0, 3, "Distance", text_color=TEXT_DIM, text_size=size.small, bgcolor=BG_PRIMARY)
+    table.cell(dash, 1, 3, d_txt,      text_color=d_clr,    text_size=size.small, bgcolor=BG_PRIMARY)
+    table.cell(dash, 0, 4, "PrimeFold Trading", text_color=TEXT_DIM,      text_size=size.tiny, bgcolor=BG_PRIMARY)
+    table.cell(dash, 1, 4, "FREE",              text_color=NEUTRAL_AMBER, text_size=size.tiny, bgcolor=BG_PRIMARY)
+// ============================================================
+// END — Pull Pocket Lite v1.0.0
+// ============================================================

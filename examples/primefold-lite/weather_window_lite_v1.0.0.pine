@@ -1,0 +1,207 @@
+//@version=5
+// ============================================================
+// PRIMEFOLD CONTINUITY REGISTRY
+// Module: Weather Window Lite — INDICATOR (Free Tier)
+// Version: v1.0.0
+// Module Code: 7L
+// (c) 2026 PrimeFold.Tools - PrimeFold Trading
+// ============================================================
+// Purpose: Free regime-awareness overlay. Shows the 6-factor
+//   weighted composite score and hysteresis state machine so
+//   traders can see macro weather at a glance.
+// ============================================================
+// Full regime alerts, signal gating, and HTF alignment available in PrimeFold Command — primefold.tools
+// ============================================================
+
+indicator("PF - Weather Window Lite v1.0.0", shorttitle="WW-Lite", overlay=true)
+
+// ============================================================================
+// PRIMEFOLD DESIGN SYSTEM v3.1 — IMMUTABLE CONSTANTS
+// ============================================================================
+
+var color BULLISH_GREEN  = #10B981
+var color NEUTRAL_AMBER  = #F59E0B
+var color BEARISH_RED    = #EF4444
+var color COGNITIVE_BLUE = #7AA2F7
+var color TEXT_DIM       = #999999
+var color TEXT_PRIMARY   = #FFFFFF
+var color BG_PRIMARY     = #121212
+var color DIVIDER        = #2A2A2A
+var color FRAME_WHITE    = #FFFFFF
+
+// ============================================================================
+// INPUTS — WEIGHTS
+// ============================================================================
+
+i_w_regime    = input.float(0.25, "Regime Weight",    step=0.05, group="Weights")
+i_w_trend     = input.float(0.25, "Trend Weight",     step=0.05, group="Weights")
+i_w_energy    = input.float(0.15, "Energy Weight",    step=0.05, group="Weights")
+i_w_liquidity = input.float(0.15, "Liquidity Weight", step=0.05, group="Weights")
+i_w_sentiment = input.float(0.10, "Sentiment Weight", step=0.05, group="Weights")
+i_w_risk      = input.float(0.10, "Risk Weight",      step=0.05, group="Weights")
+
+// ============================================================================
+// INPUTS — CALCULATION & HYSTERESIS
+// ============================================================================
+
+i_smooth = input.int(3, "Smoothing Factor", minval=1, group="Calculation")
+
+i_bull_enter_raw = input.float(0.65, "BULLISH Enter", step=0.01, group="State Thresholds")
+i_bull_exit_raw  = input.float(0.60, "BULLISH Exit",  step=0.01, group="State Thresholds")
+i_bear_enter_raw = input.float(0.35, "BEARISH Enter", step=0.01, group="State Thresholds")
+i_bear_exit_raw  = input.float(0.40, "BEARISH Exit",  step=0.01, group="State Thresholds")
+
+// Sanitize hysteresis geometry
+float i_bull_enter = math.max(i_bull_enter_raw, i_bull_exit_raw)
+float i_bull_exit  = math.min(i_bull_exit_raw, i_bull_enter)
+float i_bear_enter = math.min(i_bear_enter_raw, i_bear_exit_raw)
+float i_bear_exit  = math.max(i_bear_exit_raw, i_bear_enter)
+
+// ============================================================================
+// WEIGHT NORMALIZATION
+// ============================================================================
+
+total_weight = i_w_regime + i_w_trend + i_w_energy + i_w_liquidity + i_w_sentiment + i_w_risk
+safe_tw = total_weight == 0 ? 1.0 : total_weight
+
+wR = i_w_regime    / safe_tw
+wT = i_w_trend     / safe_tw
+wE = i_w_energy    / safe_tw
+wL = i_w_liquidity / safe_tw
+wS = i_w_sentiment / safe_tw
+wK = i_w_risk      / safe_tw
+
+// ============================================================================
+// 6-FACTOR SCORING ENGINE
+// ============================================================================
+
+src = close
+vol = volume
+
+// --- Factor 1: Regime (ADX) ---
+prevClose = nz(close[1], close)
+tr = math.max(high - low, math.max(math.abs(high - prevClose), math.abs(low - prevClose)))
+upMove = high - nz(high[1], high)
+dnMove = nz(low[1], low) - low
+plus_dm  = (upMove > dnMove and upMove > 0) ? upMove : 0.0
+minus_dm = (dnMove > upMove and dnMove > 0) ? dnMove : 0.0
+trRma = ta.rma(tr, 14)
+rmaPlus  = ta.rma(plus_dm, 14)
+rmaMinus = ta.rma(minus_dm, 14)
+plus_di  = trRma == 0 ? 0.0 : 100 * rmaPlus  / trRma
+minus_di = trRma == 0 ? 0.0 : 100 * rmaMinus / trRma
+di_sum = plus_di + minus_di
+dx = di_sum == 0 ? 0 : math.abs(plus_di - minus_di) / di_sum * 100
+adx = ta.rma(dx, 14)
+regime_score = ta.sma(math.min(adx / 50, 1), i_smooth)
+
+// --- Factor 2: Trend (Hull MA vs EMA slope) ---
+lenHull = 9
+hull = ta.wma(2 * ta.wma(src, int(lenHull / 2)) - ta.wma(src, lenHull), int(math.sqrt(lenHull)))
+lag = ta.ema(src, 20)
+slope = ta.sma(hull - lag, 8)
+tanh_approx = slope * 50 / (1 + math.abs(slope * 50))
+trend_score = ta.sma((tanh_approx + 1) / 2, i_smooth)
+
+// --- Factor 3: Energy (Williams %R + VIX proxy) ---
+hi14 = ta.highest(high, 14)
+lo14 = ta.lowest(low, 14)
+wr_range = hi14 - lo14
+wr = wr_range == 0 ? 0 : -100 * (hi14 - close) / wr_range
+_hi22 = ta.highest(src, 22)
+vix_raw = src == 0 ? 0.0 : (_hi22 - src) / src
+vix = ta.ema(math.max(0, vix_raw), 10)
+energy_score = ta.sma(1 - math.min(1, (math.abs(wr) / 100 + vix) / 2), i_smooth)
+
+// --- Factor 4: Liquidity (MFI + Volume ratio) ---
+mfi = ta.mfi(hlc3, 14)
+vol_avg = ta.sma(vol, 20)
+vol_ratio = vol_avg == 0 ? 0 : vol / vol_avg
+liquidity_score = ta.sma(((mfi > 30 and mfi < 70) ? 0.5 : 0) + (vol_ratio > 0.8 ? 0.5 : 0), i_smooth)
+
+// --- Factor 5: Sentiment (RSI) ---
+rsi = ta.rsi(src, 14)
+sentiment_score = ta.sma(rsi / 100, i_smooth)
+
+// --- Factor 6: Risk (ATR) ---
+atr = ta.atr(14)
+atr_pct = src == 0 ? 0 : atr / src
+risk_score = ta.sma(1 - math.min(atr_pct * 20, 1), i_smooth)
+
+// ============================================================================
+// COMPOSITE SCORE
+// ============================================================================
+
+ww_score = wR * regime_score + wT * trend_score + wE * energy_score + wL * liquidity_score + wS * sentiment_score + wK * risk_score
+
+// ============================================================================
+// HYSTERESIS STATE MACHINE (anti-whipsaw two-step flip)
+// ============================================================================
+
+raw_state = ww_score > i_bull_enter ? "BULLISH" : ww_score < i_bear_enter ? "BEARISH" : "NEUTRAL"
+
+var string t_state = "NEUTRAL"
+var int regime_age = 0
+
+if barstate.isconfirmed
+    string prev = t_state
+    if t_state == "BULLISH"
+        t_state := ww_score < i_bull_exit ? "NEUTRAL" : "BULLISH"
+    else if t_state == "BEARISH"
+        t_state := ww_score > i_bear_exit ? "NEUTRAL" : "BEARISH"
+    else
+        t_state := raw_state
+    regime_age := t_state == prev ? regime_age + 1 : 1
+
+// ============================================================================
+// VISUALS — Background tint
+// ============================================================================
+
+color bg = t_state == "BULLISH" ? color.new(BULLISH_GREEN, 90) : t_state == "BEARISH" ? color.new(BEARISH_RED, 90) : na
+bgcolor(bg, title="Regime Background")
+
+// ============================================================================
+// ON-CHART LABEL (current bar, last bar only)
+// ============================================================================
+
+string label_text = t_state == "BULLISH" ? "GO" : t_state == "BEARISH" ? "NO-GO" : "NEUTRAL"
+color  label_clr  = t_state == "BULLISH" ? BULLISH_GREEN : t_state == "BEARISH" ? BEARISH_RED : NEUTRAL_AMBER
+
+var label regime_label = na
+if barstate.islast
+    label.delete(regime_label)
+    regime_label := label.new(bar_index, high, label_text,
+         style=label.style_label_down, color=label_clr,
+         textcolor=TEXT_PRIMARY, size=size.normal)
+
+// ============================================================================
+// DASHBOARD (5 rows: header, state, score, age, footer)
+// ============================================================================
+
+var table dash = table.new(position.top_right, 2, 5, bgcolor=BG_PRIMARY, frame_color=FRAME_WHITE, frame_width=2, border_width=1, border_color=DIVIDER)
+
+if barstate.islast
+    // Row 0 — Header
+    table.cell(dash, 0, 0, "Weather Window Lite", bgcolor=COGNITIVE_BLUE, text_color=TEXT_PRIMARY, text_size=size.small)
+    table.cell(dash, 1, 0, "v1.0.0",             bgcolor=COGNITIVE_BLUE, text_color=TEXT_PRIMARY, text_size=size.tiny)
+
+    // Row 1 — Regime State
+    color state_clr = t_state == "BULLISH" ? BULLISH_GREEN : t_state == "BEARISH" ? BEARISH_RED : NEUTRAL_AMBER
+    table.cell(dash, 0, 1, "Regime", text_color=TEXT_DIM, text_size=size.small, bgcolor=BG_PRIMARY)
+    table.cell(dash, 1, 1, label_text, text_color=state_clr, text_size=size.small, bgcolor=BG_PRIMARY)
+
+    // Row 2 — Composite Score
+    table.cell(dash, 0, 2, "Score", text_color=TEXT_DIM, text_size=size.small, bgcolor=BG_PRIMARY)
+    table.cell(dash, 1, 2, str.tostring(math.round(ww_score * 100)) + "%", text_color=TEXT_PRIMARY, text_size=size.small, bgcolor=BG_PRIMARY)
+
+    // Row 3 — Regime Age
+    table.cell(dash, 0, 3, "Age", text_color=TEXT_DIM, text_size=size.small, bgcolor=BG_PRIMARY)
+    table.cell(dash, 1, 3, str.tostring(regime_age) + " bars", text_color=TEXT_PRIMARY, text_size=size.small, bgcolor=BG_PRIMARY)
+
+    // Row 4 — Footer
+    table.cell(dash, 0, 4, "PrimeFold Trading", text_color=TEXT_DIM, text_size=size.tiny, bgcolor=BG_PRIMARY)
+    table.cell(dash, 1, 4, "FREE",              text_color=NEUTRAL_AMBER, text_size=size.tiny, bgcolor=BG_PRIMARY)
+
+// ============================================================================
+// END — Weather Window Lite v1.0.0
+// ============================================================================
