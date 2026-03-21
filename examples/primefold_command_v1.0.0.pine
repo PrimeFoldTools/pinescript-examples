@@ -1,0 +1,529 @@
+//@version=5
+//
+//   ██████╗ ██████╗ ██╗███╗   ███╗███████╗███████╗ ██████╗ ██╗     ██████╗
+//   ██╔══██╗██╔══██╗██║████╗ ████║██╔════╝██╔════╝██╔═══██╗██║     ██╔══██╗
+//   ██████╔╝██████╔╝██║██╔████╔██║█████╗  █████╗  ██║   ██║██║     ██║  ██║
+//   ██╔═══╝ ██╔══██╗██║██║╚██╔╝██║██╔══╝  ██╔══╝  ██║   ██║██║     ██║  ██║
+//   ██║     ██║  ██║██║██║ ╚═╝ ██║███████╗██║     ╚██████╔╝███████╗██████╔╝
+//   ╚═╝     ╚═╝  ╚═╝╚═╝╚═╝     ╚═╝╚══════╝╚═╝      ╚═════╝ ╚══════╝╚═════╝
+//
+//   ██████╗ ██████╗ ███╗   ███╗███╗   ███╗ █████╗ ███╗   ██╗██████╗
+//  ██╔════╝██╔═══██╗████╗ ████║████╗ ████║██╔══██╗████╗  ██║██╔══██╗
+//  ██║     ██║   ██║██╔████╔██║██╔████╔██║███████║██╔██╗ ██║██║  ██║
+//  ██║     ██║   ██║██║╚██╔╝██║██║╚██╔╝██║██╔══██║██║╚██╗██║██║  ██║
+//  ╚██████╗╚██████╔╝██║ ╚═╝ ██║██║ ╚═╝ ██║██║  ██║██║ ╚████║██████╔╝
+//   ╚═════╝ ╚═════╝ ╚═╝     ╚═╝╚═╝     ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═════╝
+//
+//   (c) 2026 PrimeFold.Tools - PrimeFold Trading
+//
+// ============================================================
+// PRIMEFOLD COMMAND v1.0.0
+// The unified trading indicator.
+// Slipstream (reversal) + Tailwind (continuation) + Undercurrent (state) + Weather Window (regime)
+// 90,000+ backtests | 925 assets | 5,321 validated edges
+// ============================================================
+
+indicator("PrimeFold Command v1.0.0", shorttitle="PF-CMD",
+     overlay=true, max_labels_count=50, max_boxes_count=10)
+
+// ============================================================================
+// SECTION 1: DESIGN SYSTEM v3.1
+// ============================================================================
+
+var color BULLISH_GREEN  = #10B981
+var color NEUTRAL_AMBER  = #F59E0B
+var color BEARISH_RED    = #EF4444
+var color COGNITIVE_BLUE = #7AA2F7
+var color SIGNAL_GOLD    = #FFD900
+var color FRAME_WHITE    = #FFFFFF
+var color PLATINUM_CLR   = #A855F7
+var color GOLD_CLR       = #FACC15
+var color SILVER_CLR     = #9CA3AF
+var color BRONZE_CLR     = #92400E
+
+var color DS_BG       = #121212
+var color DS_DIVIDER  = #2A2A2A
+var color DS_TEXT      = #FFFFFF
+var color DS_DIM       = #999999
+
+int TIER_PLAT = 4
+int TIER_GOLD = 3
+int TIER_SILV = 2
+int TIER_BRNZ = 1
+
+// ============================================================================
+// SECTION 2: INPUTS
+// ============================================================================
+
+string GRP_CMD  = "Command"
+string GRP_WW   = "Weather Window (Regime)"
+string GRP_SS   = "Slipstream (Reversal)"
+string GRP_BF   = "Tailwind (Continuation)"
+string GRP_DASH = "Dashboard"
+string GRP_ALT  = "Alerts"
+
+// -- Command --
+i_show_bg    = input.bool(true,  "Signal Background Flash", group=GRP_CMD)
+i_show_entry = input.bool(true,  "Show Entry Markers", group=GRP_CMD)
+i_show_emas  = input.bool(true,  "Show EMAs", group=GRP_CMD)
+
+// -- Weather Window --
+i_ww_w_regime    = input.float(0.25, "Regime Weight",    step=0.05, group=GRP_WW)
+i_ww_w_trend     = input.float(0.25, "Trend Weight",     step=0.05, group=GRP_WW)
+i_ww_w_energy    = input.float(0.15, "Energy Weight",    step=0.05, group=GRP_WW)
+i_ww_w_liquidity = input.float(0.15, "Liquidity Weight", step=0.05, group=GRP_WW)
+i_ww_w_sentiment = input.float(0.10, "Sentiment Weight", step=0.05, group=GRP_WW)
+i_ww_w_risk      = input.float(0.10, "Risk Weight",      step=0.05, group=GRP_WW)
+i_ww_smooth      = input.int(3,      "WW Smoothing",     minval=1, group=GRP_WW)
+i_ww_bull_enter  = input.float(0.65, "BULLISH Enter",    step=0.01, group=GRP_WW)
+i_ww_bull_exit   = input.float(0.60, "BULLISH Exit",     step=0.01, group=GRP_WW)
+i_ww_bear_enter  = input.float(0.35, "BEARISH Enter",    step=0.01, group=GRP_WW)
+i_ww_bear_exit   = input.float(0.40, "BEARISH Exit",     step=0.01, group=GRP_WW)
+
+// -- Slipstream --
+i_ss_td_fast   = input.int(21,  "SS: TD Fast %R",     minval=5,  maxval=100, group=GRP_SS)
+i_ss_td_slow   = input.int(112, "SS: TD Slow %R",     minval=20, maxval=300, group=GRP_SS)
+i_ss_td_thresh = input.int(20,  "SS: TD Threshold",   minval=5,  maxval=40,  group=GRP_SS)
+i_ss_mm_k1     = input.int(9,   "SS: MM Stoch K1",    minval=2,  maxval=50,  group=GRP_SS)
+i_ss_mm_k2     = input.int(14,  "SS: MM Stoch K2",    minval=2,  maxval=50,  group=GRP_SS)
+i_ss_mm_k3     = input.int(40,  "SS: MM Stoch K3",    minval=5,  maxval=100, group=GRP_SS)
+i_ss_mm_k4     = input.int(60,  "SS: MM Stoch K4",    minval=5,  maxval=150, group=GRP_SS)
+i_ss_window    = input.int(8,   "SS: Coherence Window", minval=2, maxval=20, group=GRP_SS)
+i_ss_cooldown  = input.int(8,   "SS: Cooldown Bars",  minval=3,  maxval=30,  group=GRP_SS)
+i_ss_agree     = input.int(4,   "SS: MM Agreement",   minval=2,  maxval=4,   group=GRP_SS)
+i_ss_zone      = input.int(20,  "SS: MM Extreme Zone", minval=10, maxval=40,  group=GRP_SS)
+
+// -- Tailwind --
+i_bf_embed_bars = input.int(3,    "BF: Embedded Bars",    minval=2, maxval=10, group=GRP_BF)
+i_bf_k4_period  = input.int(60,   "BF: Ultra-Slow K",     minval=20, maxval=100, group=GRP_BF)
+i_bf_d4_period  = input.int(10,   "BF: Ultra-Slow D",     minval=3, maxval=20, group=GRP_BF)
+i_bf_d4_smooth  = input.int(10,   "BF: Ultra-Slow Smooth", minval=1, maxval=20, group=GRP_BF)
+i_bf_fast_k     = input.int(9,    "BF: Fast Stoch K",     minval=2, maxval=30, group=GRP_BF)
+i_bf_fast_smooth = input.int(3,   "BF: Fast Stoch Smooth", minval=1, maxval=10, group=GRP_BF)
+i_bf_pullback   = input.int(25,   "BF: Pullback Level",   minval=10, maxval=40, group=GRP_BF)
+i_bf_ema_fast   = input.int(20,   "BF: EMA Fast",         minval=5, maxval=50, group=GRP_BF)
+i_bf_ema_slow   = input.int(50,   "BF: EMA Slow",         minval=20, maxval=200, group=GRP_BF)
+i_bf_ema_prox   = input.float(2.0, "BF: EMA Proximity %", minval=0.5, maxval=5.0, step=0.5, group=GRP_BF)
+i_bf_cooldown   = input.int(10,   "BF: Cooldown Bars",    minval=3, maxval=30, group=GRP_BF)
+
+// -- Dashboard --
+i_dash_pos  = input.string("Top Right", "Dashboard Position", options=["Top Left", "Top Right", "Bottom Left", "Bottom Right"], group=GRP_DASH)
+i_show_dash = input.bool(true, "Show Dashboard", group=GRP_DASH)
+
+// -- Alerts --
+i_alerts = input.bool(true, "Enable Alerts", group=GRP_ALT)
+
+// ============================================================================
+// SECTION 3: WEATHER WINDOW ENGINE (Regime)
+// ============================================================================
+
+// Factor 1: Regime (ADX)
+float adx_val = ta.rma(math.abs(ta.change(ta.highest(high, 14)) - ta.change(ta.lowest(low, 14))), 14)
+float f_regime = math.min(adx_val / 50.0, 1.0)
+
+// Factor 2: Trend (EMA slope)
+float ww_ema = ta.ema(close, 21)
+float ww_slope = (ww_ema - ww_ema[10]) / 10.0
+float ww_atr = ta.atr(14)
+float f_trend = ww_atr > 0 ? math.min(math.abs(ww_slope) / ww_atr * 2.0, 1.0) : 0.5
+f_trend := ww_slope > 0 ? 0.5 + f_trend * 0.5 : 0.5 - f_trend * 0.5
+
+// Factor 3: Energy (Williams %R normalized)
+float ww_wr = -100.0 * (ta.highest(high, 14) - close) / math.max(ta.highest(high, 14) - ta.lowest(low, 14), 1e-10)
+float f_energy = (ww_wr + 100.0) / 100.0
+
+// Factor 4: Liquidity (MFI normalized)
+float mfi_val = ta.mfi(hlc3, 14)
+float f_liquidity = mfi_val / 100.0
+
+// Factor 5: Sentiment (RSI normalized)
+float rsi_val = ta.rsi(close, 14)
+float f_sentiment = rsi_val / 100.0
+
+// Factor 6: Risk (inverted ATR ratio)
+float atr_ratio = ww_atr / close * 100.0
+float f_risk = 1.0 - math.min(atr_ratio / 5.0, 1.0)
+
+// Weighted composite
+float w_sum = i_ww_w_regime + i_ww_w_trend + i_ww_w_energy + i_ww_w_liquidity + i_ww_w_sentiment + i_ww_w_risk
+float composite = w_sum > 0 ? (f_regime * i_ww_w_regime + f_trend * i_ww_w_trend + f_energy * i_ww_w_energy + f_liquidity * i_ww_w_liquidity + f_sentiment * i_ww_w_sentiment + f_risk * i_ww_w_risk) / w_sum : 0.5
+float ww_score = ta.ema(composite, i_ww_smooth)
+
+// Hysteresis state machine
+float bull_enter = math.max(i_ww_bull_enter, i_ww_bull_exit)
+float bull_exit  = math.min(i_ww_bull_exit, bull_enter)
+float bear_enter = math.min(i_ww_bear_enter, i_ww_bear_exit)
+float bear_exit  = math.max(i_ww_bear_exit, bear_enter)
+
+var int ww_state = 0  // -1=BEARISH, 0=NEUTRAL, 1=BULLISH
+if barstate.isconfirmed
+    if ww_state == 1
+        ww_state := ww_score < bull_exit ? 0 : 1
+    else if ww_state == -1
+        ww_state := ww_score > bear_exit ? 0 : -1
+    else
+        ww_state := ww_score >= bull_enter ? 1 : ww_score <= bear_enter ? -1 : 0
+
+bool regime_go = ww_state == 1 or ww_state == -1
+
+// ============================================================================
+// SECTION 4: UNDERCURRENT ENGINE (Embedded State)
+// ============================================================================
+
+float k4_raw = ta.sma(ta.stoch(close, high, low, i_bf_k4_period), i_bf_d4_smooth)
+float d4 = ta.sma(k4_raw, i_bf_d4_period)
+
+var int consec_above = 0
+var int consec_below = 0
+if barstate.isconfirmed
+    consec_above := d4 > 80 ? consec_above + 1 : 0
+    consec_below := d4 < 20 ? consec_below + 1 : 0
+
+bool embedded_bull = consec_above >= i_bf_embed_bars
+bool embedded_bear = consec_below >= i_bf_embed_bars
+bool is_embedded = embedded_bull or embedded_bear
+string active_mode = is_embedded ? "TAILWIND" : "SLIPSTREAM"
+
+// ============================================================================
+// SECTION 5: SLIPSTREAM ENGINE (Reversal — active when NOT embedded)
+// ============================================================================
+
+// TD sub-engine (dual Williams %R)
+f_wr(int len) =>
+    float hh = ta.highest(high, len)
+    float ll = ta.lowest(low, len)
+    -100.0 * (hh - close) / math.max(hh - ll, 1e-10)
+
+float td_fast = ta.ema(f_wr(i_ss_td_fast), 7)
+float td_slow = ta.ema(f_wr(i_ss_td_slow), 3)
+float td_ob = -float(i_ss_td_thresh)
+float td_os = -(100.0 - float(i_ss_td_thresh))
+
+bool td_overbought = td_fast >= td_ob and td_slow >= td_ob
+bool td_oversold   = td_fast <= td_os and td_slow <= td_os
+bool td_long  = not td_oversold and nz(td_oversold[1], false)
+bool td_short = not td_overbought and nz(td_overbought[1], false)
+
+// MM sub-engine (quad stochastic)
+f_sd(int k, int d) =>
+    ta.sma(ta.sma(ta.stoch(close, high, low, k), 1), d)
+
+float mm1 = f_sd(i_ss_mm_k1, 3)
+float mm2 = f_sd(i_ss_mm_k2, 3)
+float mm3 = f_sd(i_ss_mm_k3, 4)
+float mm4 = f_sd(i_ss_mm_k4, 10)
+
+float mm_os = float(i_ss_zone)
+float mm_ob = 100.0 - mm_os
+int mm_up = (ta.change(mm1) > 0 and mm1 < mm_os ? 1 : 0) + (ta.change(mm2) > 0 and mm2 < mm_os ? 1 : 0) + (ta.change(mm3) > 0 and mm3 < mm_os ? 1 : 0) + (ta.change(mm4) > 0 and mm4 < mm_os ? 1 : 0)
+int mm_dn = (ta.change(mm1) < 0 and mm1 > mm_ob ? 1 : 0) + (ta.change(mm2) < 0 and mm2 > mm_ob ? 1 : 0) + (ta.change(mm3) < 0 and mm3 > mm_ob ? 1 : 0) + (ta.change(mm4) < 0 and mm4 > mm_ob ? 1 : 0)
+
+bool mm_long  = mm_up >= i_ss_agree and nz(mm_up[1]) < i_ss_agree
+bool mm_short = mm_dn >= i_ss_agree and nz(mm_dn[1]) < i_ss_agree
+
+// Temporal coherence gate
+var int last_td_l = -999
+var int last_td_s = -999
+var int last_mm_l = -999
+var int last_mm_s = -999
+var int last_ss_bar = -999
+var int used_td_l = -999
+var int used_mm_l = -999
+var int used_td_s = -999
+var int used_mm_s = -999
+
+var bool ss_fire = false
+var int  ss_dir  = 0
+var int  ss_lag  = 0
+var int  ss_tier = 0
+
+if barstate.isconfirmed
+    if td_long
+        last_td_l := bar_index
+    if td_short
+        last_td_s := bar_index
+    if mm_long
+        last_mm_l := bar_index
+    if mm_short
+        last_mm_s := bar_index
+
+    ss_fire := false
+    ss_dir  := 0
+
+    bool ss_active = not is_embedded
+    bool ss_cool = bar_index - last_ss_bar >= i_ss_cooldown or last_ss_bar < 0
+
+    if ss_active and ss_cool
+        bool bull_new = last_td_l != used_td_l or last_mm_l != used_mm_l
+        if bull_new and (bar_index - last_td_l) <= i_ss_window and (bar_index - last_mm_l) <= i_ss_window
+            int lag = math.abs(last_td_l - last_mm_l)
+            ss_fire := true
+            ss_dir  := 1
+            ss_lag  := lag
+            ss_tier := lag <= 1 ? TIER_PLAT : lag <= 3 ? TIER_GOLD : lag <= 5 ? TIER_SILV : TIER_BRNZ
+            last_ss_bar := bar_index
+            used_td_l := last_td_l
+            used_mm_l := last_mm_l
+
+        if not ss_fire
+            bool bear_new = last_td_s != used_td_s or last_mm_s != used_mm_s
+            if bear_new and (bar_index - last_td_s) <= i_ss_window and (bar_index - last_mm_s) <= i_ss_window
+                int lag_s = math.abs(last_td_s - last_mm_s)
+                ss_fire := true
+                ss_dir  := -1
+                ss_lag  := lag_s
+                ss_tier := lag_s <= 1 ? TIER_PLAT : lag_s <= 3 ? TIER_GOLD : lag_s <= 5 ? TIER_SILV : TIER_BRNZ
+                last_ss_bar := bar_index
+                used_td_s := last_td_s
+                used_mm_s := last_mm_s
+
+// ============================================================================
+// SECTION 6: TAILWIND ENGINE (Continuation — active when embedded)
+// ============================================================================
+
+float bf_fast_k = ta.sma(ta.stoch(close, high, low, i_bf_fast_k), i_bf_fast_smooth)
+float bf_ema_f = ta.ema(close, i_bf_ema_fast)
+float bf_ema_s = ta.ema(close, i_bf_ema_slow)
+
+var bool bf_bull_pb = false
+var bool bf_bear_pb = false
+var int  last_bf_bar = -999
+var bool bf_fire = false
+var int  bf_dir  = 0
+
+if barstate.isconfirmed
+    bf_fire := false
+    bf_dir  := 0
+
+    bool bf_active = is_embedded
+
+    if bf_active
+        // Bull flag
+        if embedded_bull and bf_fast_k < i_bf_pullback and close > bf_ema_f and close > bf_ema_s
+            bf_bull_pb := true
+        if bf_bull_pb and (bar_index - last_bf_bar) >= i_bf_cooldown
+            bool turn = bf_fast_k > nz(bf_fast_k[1]) and nz(bf_fast_k[1]) < 30
+            bool near = math.abs(low - bf_ema_f) / bf_ema_f * 100 < i_bf_ema_prox or low <= bf_ema_f
+            if turn and near
+                bf_fire := true
+                bf_dir  := 1
+                bf_bull_pb := false
+                last_bf_bar := bar_index
+        if not embedded_bull
+            bf_bull_pb := false
+
+        // Bear flag
+        if embedded_bear and bf_fast_k > (100 - i_bf_pullback) and close < bf_ema_f and close < bf_ema_s
+            bf_bear_pb := true
+        if bf_bear_pb and (bar_index - last_bf_bar) >= i_bf_cooldown
+            bool turn_dn = bf_fast_k < nz(bf_fast_k[1]) and nz(bf_fast_k[1]) > 70
+            bool near_bear = math.abs(high - bf_ema_f) / bf_ema_f * 100 < i_bf_ema_prox or high >= bf_ema_f
+            if turn_dn and near_bear
+                bf_fire := true
+                bf_dir  := -1
+                bf_bear_pb := false
+                last_bf_bar := bar_index
+        if not embedded_bear
+            bf_bear_pb := false
+
+// ============================================================================
+// SECTION 7: SIGNAL GATING
+// ============================================================================
+
+bool cmd_ss_fire = ss_fire and regime_go
+bool cmd_bf_fire = bf_fire and regime_go
+bool cmd_any     = cmd_ss_fire or cmd_bf_fire
+
+int cmd_dir = cmd_ss_fire ? ss_dir : cmd_bf_fire ? bf_dir : 0
+
+// ============================================================================
+// SECTION 8: VISUAL OUTPUT
+// ============================================================================
+
+// EMAs from Tailwind
+plot(i_show_emas ? bf_ema_f : na, "EMA 20", color=color.new(COGNITIVE_BLUE, 30), linewidth=1)
+plot(i_show_emas ? bf_ema_s : na, "EMA 50", color=color.new(NEUTRAL_AMBER, 30), linewidth=1)
+
+// Regime background
+color regime_bg = ww_state == 1 ? color.new(BULLISH_GREEN, 95) : ww_state == -1 ? color.new(BEARISH_RED, 95) : na
+bgcolor(regime_bg, title="Regime Background")
+
+// Embedded state background
+color embed_bg = is_embedded ? (embedded_bull ? color.new(BULLISH_GREEN, 92) : color.new(BEARISH_RED, 92)) : na
+bgcolor(embed_bg, title="Embedded State")
+
+// Signal flash
+color sig_bg = na
+if i_show_bg and cmd_any
+    sig_bg := cmd_dir == 1 ? color.new(BULLISH_GREEN, 85) : cmd_dir == -1 ? color.new(BEARISH_RED, 85) : na
+bgcolor(sig_bg, title="Signal Flash")
+
+// SS entry markers (colored by tier)
+color ss_mkr = ss_tier == TIER_PLAT ? PLATINUM_CLR : ss_tier == TIER_GOLD ? GOLD_CLR : ss_tier == TIER_SILV ? SILVER_CLR : BRONZE_CLR
+plotshape(i_show_entry and cmd_ss_fire and ss_dir == 1,  "SS Long",  style=shape.labelup,   location=location.belowbar, color=ss_mkr, size=size.normal, text="SS", textcolor=#FFFFFF)
+plotshape(i_show_entry and cmd_ss_fire and ss_dir == -1, "SS Short", style=shape.labeldown, location=location.abovebar, color=ss_mkr, size=size.normal, text="SS", textcolor=#FFFFFF)
+
+// BF entry markers
+plotshape(i_show_entry and cmd_bf_fire and bf_dir == 1,  "BF Long",  style=shape.labelup,   location=location.belowbar, color=SIGNAL_GOLD, size=size.normal, text="BF", textcolor=#000000)
+plotshape(i_show_entry and cmd_bf_fire and bf_dir == -1, "BF Short", style=shape.labeldown, location=location.abovebar, color=SIGNAL_GOLD, size=size.normal, text="BF", textcolor=#000000)
+
+// ============================================================================
+// SECTION 9: COMMAND DASHBOARD
+// ============================================================================
+
+f_tier_badge(int t) => t == 4 ? "PLAT" : t == 3 ? "GOLD" : t == 2 ? "SILV" : t == 1 ? "BRNZ" : "---"
+f_tier_clr(int t) => t == 4 ? PLATINUM_CLR : t == 3 ? GOLD_CLR : t == 2 ? SILVER_CLR : t == 1 ? BRONZE_CLR : DS_DIM
+f_pos() => i_dash_pos == "Top Left" ? position.top_left : i_dash_pos == "Top Right" ? position.top_right : i_dash_pos == "Bottom Left" ? position.bottom_left : position.bottom_right
+
+var table dash = na
+if i_show_dash and barstate.islast
+    if not na(dash)
+        table.delete(dash)
+    dash := table.new(f_pos(), 2, 9, bgcolor=DS_BG, frame_color=FRAME_WHITE, frame_width=3, border_width=1, border_color=DS_DIVIDER)
+
+    // Row 0: Header
+    table.cell(dash, 0, 0, "PRIMEFOLD COMMAND", bgcolor=COGNITIVE_BLUE, text_color=#FFFFFF, text_size=size.normal, text_halign=text.align_center)
+    table.cell(dash, 1, 0, "v1.0.0", bgcolor=COGNITIVE_BLUE, text_color=#FFFFFF, text_size=size.small, text_halign=text.align_center)
+
+    // Row 1: Active Mode
+    color mode_bg = is_embedded ? SIGNAL_GOLD : COGNITIVE_BLUE
+    table.cell(dash, 0, 1, active_mode, bgcolor=mode_bg, text_color=#000000, text_size=size.normal, text_halign=text.align_center)
+    string mode_detail = is_embedded ? (embedded_bull ? "BULL TREND" : "BEAR TREND") : "REVERSAL"
+    table.cell(dash, 1, 1, mode_detail, bgcolor=mode_bg, text_color=#000000, text_size=size.small, text_halign=text.align_center)
+
+    // Row 2: Regime
+    string regime_txt = ww_state == 1 ? "GO" : ww_state == -1 ? "GO" : "NO-GO"
+    color regime_clr = regime_go ? BULLISH_GREEN : BEARISH_RED
+    string regime_dir = ww_state == 1 ? "BULLISH" : ww_state == -1 ? "BEARISH" : "NEUTRAL"
+    table.cell(dash, 0, 2, regime_txt, bgcolor=regime_clr, text_color=#000000, text_size=size.normal, text_halign=text.align_center)
+    table.cell(dash, 1, 2, regime_dir, bgcolor=regime_clr, text_color=#000000, text_size=size.small, text_halign=text.align_center)
+
+    // Row 3: Signal
+    string sig_txt = cmd_ss_fire ? (ss_dir == 1 ? "LONG" : "SHORT") : cmd_bf_fire ? (bf_dir == 1 ? "LONG" : "SHORT") : "---"
+    string sig_src = cmd_ss_fire ? "SLIPSTREAM" : cmd_bf_fire ? "TAILWIND" : "---"
+    color sig_clr = cmd_dir == 1 ? BULLISH_GREEN : cmd_dir == -1 ? BEARISH_RED : DS_DIM
+    table.cell(dash, 0, 3, sig_txt, bgcolor=DS_BG, text_color=sig_clr, text_size=size.normal, text_halign=text.align_center)
+    table.cell(dash, 1, 3, sig_src, bgcolor=DS_BG, text_color=sig_clr, text_size=size.small, text_halign=text.align_center)
+
+    // Row 4: Tier
+    int show_tier = cmd_ss_fire ? ss_tier : 0
+    table.cell(dash, 0, 4, "TIER", bgcolor=DS_BG, text_color=DS_DIM, text_size=size.small, text_halign=text.align_left)
+    table.cell(dash, 1, 4, f_tier_badge(show_tier), bgcolor=show_tier > 0 ? f_tier_clr(show_tier) : DS_BG, text_color=show_tier > 0 ? #000000 : DS_DIM, text_size=size.normal, text_halign=text.align_right)
+
+    // Row 5: WW Score
+    table.cell(dash, 0, 5, "REGIME", bgcolor=DS_BG, text_color=DS_DIM, text_size=size.small, text_halign=text.align_left)
+    table.cell(dash, 1, 5, str.tostring(math.round(ww_score * 100, 0)) + "%", bgcolor=DS_BG, text_color=ww_score >= 0.65 ? BULLISH_GREEN : ww_score <= 0.35 ? BEARISH_RED : DS_DIM, text_size=size.normal, text_halign=text.align_right)
+
+    // Row 6: Embedded State
+    string embed_txt = embedded_bull ? "BULL (" + str.tostring(consec_above) + ")" : embedded_bear ? "BEAR (" + str.tostring(consec_below) + ")" : "NORMAL"
+    table.cell(dash, 0, 6, "UNDERCURRENT", bgcolor=DS_BG, text_color=DS_DIM, text_size=size.small, text_halign=text.align_left)
+    table.cell(dash, 1, 6, embed_txt, bgcolor=DS_BG, text_color=is_embedded ? SIGNAL_GOLD : DS_DIM, text_size=size.small, text_halign=text.align_right)
+
+    // Row 7: Volume
+    float vol_r = volume / math.max(ta.sma(volume, 20), 1)
+    string vol_txt = vol_r < 0.7 ? "DRY" : vol_r > 1.3 ? "SURGE" : "NORMAL"
+    table.cell(dash, 0, 7, "VOLUME", bgcolor=DS_BG, text_color=DS_DIM, text_size=size.small, text_halign=text.align_left)
+    table.cell(dash, 1, 7, vol_txt, bgcolor=DS_BG, text_color=vol_r > 1.3 ? NEUTRAL_AMBER : DS_DIM, text_size=size.small, text_halign=text.align_right)
+
+    // Row 8: Footer
+    table.cell(dash, 0, 8, "PrimeFold Trading", bgcolor=DS_BG, text_color=DS_DIM, text_size=size.tiny, text_halign=text.align_left)
+    table.cell(dash, 1, 8, "CMD", bgcolor=DS_BG, text_color=DS_DIM, text_size=size.tiny, text_halign=text.align_right)
+
+// ============================================================================
+// SECTION 10: BRIDGE SCHEMA v3.0
+// ============================================================================
+
+plot(99.0,                                          "PF Module_id",    display=display.none, editable=false)
+plot(cmd_ss_fire ? (ss_dir == 1 ? 3.0 : 1.0) : cmd_bf_fire ? (bf_dir == 1 ? 3.0 : 1.0) : 0.0, "PF State_code", display=display.none, editable=false)
+plot(cmd_any ? 1.0 : 0.0,                           "PF Event_code",   display=display.none, editable=false)
+plot(float(cmd_dir),                                 "PF Direction",    display=display.none, editable=false)
+plot(cmd_ss_fire ? float(ss_tier) / 4.0 : cmd_bf_fire ? 0.75 : 0.0, "PF Quality_ratio", display=display.none, editable=false)
+
+// ============================================================================
+// SECTION 11: ALERT SYSTEM
+// ============================================================================
+
+alertcondition(i_alerts and cmd_any,
+     title="CMD: Any Signal",
+     message="PrimeFold Command: Signal on {{ticker}} {{interval}}. Mode: " + active_mode + ". Check chart.")
+
+alertcondition(i_alerts and cmd_ss_fire and ss_dir == 1,
+     title="CMD: Slipstream Long",
+     message="PrimeFold Command: SLIPSTREAM LONG on {{ticker}} {{interval}}. Reversal signal — TD+MM temporal coherence.")
+
+alertcondition(i_alerts and cmd_ss_fire and ss_dir == -1,
+     title="CMD: Slipstream Short",
+     message="PrimeFold Command: SLIPSTREAM SHORT on {{ticker}} {{interval}}. Reversal signal — TD+MM temporal coherence.")
+
+alertcondition(i_alerts and cmd_bf_fire and bf_dir == 1,
+     title="CMD: Tailwind Long",
+     message="PrimeFold Command: TAILWIND LONG on {{ticker}} {{interval}}. Continuation flag in embedded bull trend.")
+
+alertcondition(i_alerts and cmd_bf_fire and bf_dir == -1,
+     title="CMD: Tailwind Short",
+     message="PrimeFold Command: TAILWIND SHORT on {{ticker}} {{interval}}. Continuation flag in embedded bear trend.")
+
+alertcondition(i_alerts and cmd_ss_fire and ss_tier >= TIER_GOLD,
+     title="CMD: GOLD+ Signal",
+     message="PrimeFold Command: GOLD+ quality Slipstream on {{ticker}} {{interval}}. High-probability reversal setup.")
+
+alertcondition(i_alerts and cmd_ss_fire and ss_tier == TIER_PLAT,
+     title="CMD: PLATINUM Signal",
+     message="PrimeFold Command: PLATINUM Slipstream on {{ticker}} {{interval}}! Zero-lag TD+MM confluence — best quality signal.")
+
+alertcondition(i_alerts and regime_go and not nz(regime_go[1]),
+     title="CMD: Regime GO",
+     message="PrimeFold Command: Regime changed to GO on {{ticker}} {{interval}}. Signals are now active.")
+
+alertcondition(i_alerts and not regime_go and nz(regime_go[1]),
+     title="CMD: Regime NO-GO",
+     message="PrimeFold Command: Regime changed to NO-GO on {{ticker}} {{interval}}. Signals suppressed.")
+
+// ============================================================================
+// CHANGELOG
+// ============================================================================
+//
+// v1.0.0 (2026-03-21) — INITIAL RELEASE
+//
+//   PrimeFold Command: Unified indicator combining 4 engines.
+//
+//   SLIPSTREAM (SS): Reversal detection via temporal coherence between
+//   TD exhaustion (Williams %R 21/112) and MM rotation (Quad Stochastic
+//   9/14/40/60). Pair consumption prevents refire. Tier grading by lag.
+//   Source: GERTHUMS Phase Gate v4.6.2. Avg PF 7.26, 699 validated edges.
+//
+//   TAILWIND (BF): Continuation detection via embedded trend flags.
+//   Ultra-slow stoch (60,10,10) embedded >80 (bull) or <20 (bear) for
+//   3+ bars. Fast stoch (9,3) pullback to 25 + EMA(20) touch + turn up.
+//   Source: GERTHUMS Thunderbird / Kurisko HPS. Avg PF 4.71, 183 edges.
+//
+//   UNDERCURRENT (ES): State switcher. When ultra-slow stoch is embedded,
+//   Command activates Tailwind mode. When not embedded, Slipstream mode.
+//   Auto-selection — no user input required.
+//
+//   WEATHER WINDOW (WW): 6-factor regime gate. Weighted composite of
+//   ADX regime, EMA trend, Williams %R energy, MFI liquidity, RSI
+//   sentiment, ATR risk. Hysteresis state machine prevents whipsaw.
+//   Signals suppressed during NO-GO regime.
+//
+//   DASHBOARD: 9-row command center showing mode, regime, signal,
+//   tier, regime score, undercurrent state, volume.
+//
+//   ALERTS: 9 types — Any, SS Long/Short, BF Long/Short, GOLD+,
+//   PLATINUM, Regime GO, Regime NO-GO.
+//
+//   BRIDGE: v3.0 schema, module code 99 (Command).
+//
+//   NON-REPAINT: All state writes gated on barstate.isconfirmed.
+//
+//  -------------------------------------------
+//               /\        N
+//              /  \       |
+//         /\  /    \  W --+-- E
+//        /  \/      \     |
+//       /____________\    S
+//        TOOLS THAT THINK.
+//     SYSTEMS THAT SCALE.
+//  DECISIONS THAT COMPOUND.
+//  primefold.tools - @CollinNerdahl
+//  -------------------------------------------
